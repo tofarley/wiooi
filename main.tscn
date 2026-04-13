@@ -1,0 +1,37 @@
+[gd_scene format=3 uid="uid://main2d"]
+
+[ext_resource type="Script" uid="uid://dpgvtnk6u88gn" path="res://scripts/main.gd" id="1_ig7tw"]
+
+[node name="Main" type="Node2D" unique_id=349302221]
+script = ExtResource("1_ig7tw")
+
+[node name="Camera2D" type="Camera2D" parent="." unique_id=993288946]
+
+[node name="MapSprite" type="Sprite2D" parent="." unique_id=1869309532]
+
+[node name="HighlightLayer" type="Node2D" parent="." unique_id=1237132023]
+
+[node name="UnitsLayer" type="Node2D" parent="." unique_id=252123471]
+
+[node name="UILayer" type="CanvasLayer" parent="." unique_id=1728447871]
+
+[node name="TurnLabel" type="Label" parent="UILayer" unique_id=499795350]
+offset_left = 20.0
+offset_top = 20.0
+offset_right = 20.0
+offset_bottom = 20.0
+text = "Turn 1"
+
+[node name="PhaseLabel" type="Label" parent="UILayer" unique_id=364631850]
+offset_left = 20.0
+offset_top = 50.0
+offset_right = 20.0
+offset_bottom = 50.0
+text = "GREEK TURN"
+
+[node name="EndTurnButton" type="Button" parent="UILayer" unique_id=1505862930]
+offset_left = 20.0
+offset_top = 90.0
+offset_right = 140.0
+offset_bottom = 130.0
+text = "End Turn"

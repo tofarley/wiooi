@@ -1,0 +1,12 @@
+[gd_scene format=3 uid="uid://dlgvj7wv2xc2n"]
+
+[ext_resource type="Script" uid="uid://b80l00evv3oxl" path="res://scripts/unit_counter.gd" id="1_74u0e"]
+
+[node name="UnitCounter" type="Node2D" unique_id=238276191]
+script = ExtResource("1_74u0e")
+
+[node name="SelectionRing" type="ColorRect" parent="." unique_id=1142525]
+
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=1100822848]
+
+[node name="MovedOverlay" type="ColorRect" parent="." unique_id=1780274924]

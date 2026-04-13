@@ -1,0 +1,95 @@
+COUNTER ATLAS CC REFERENCE
+Atlas is 16 cols (0-15) x 12 rows (0-11) at 187px per cell
+Even rows = front face, Odd rows = back face
+The CC letter (A, B, or C) is in the TOP-RIGHT corner of each front-face cell
+
+=== RED WING ===
+  #0: Row 0, Col 1  (current guess: A)
+  #1: Row 0, Col 2  (current guess: A)
+  #2: Row 0, Col 3  (current guess: A)
+  #3: Row 0, Col 4  (current guess: A)
+  #4: Row 0, Col 5  (current guess: B)
+  #5: Row 0, Col 6  (current guess: B)
+  #6: Row 0, Col 7  (current guess: B)
+  #7: Row 2, Col 1  (current guess: B)
+  #8: Row 2, Col 2  (current guess: B)
+  #9: Row 2, Col 3  (current guess: B)
+  #10: Row 2, Col 5  (current guess: B)
+  #11: Row 2, Col 6  (current guess: B)
+
+=== ORANGE WING ===
+  #0: Row 4, Col 3  (current guess: B)
+  #1: Row 4, Col 4  (current guess: B)
+  #2: Row 4, Col 5  (current guess: B)
+  #3: Row 4, Col 7  (current guess: B)
+  #4: Row 6, Col 0  (current guess: B)
+  #5: Row 6, Col 1  (current guess: B)
+  #6: Row 6, Col 2  (current guess: B)
+  #7: Row 6, Col 3  (current guess: A)
+
+=== PURPLE WING ===
+  #0: Row 6, Col 5  (current guess: A)
+  #1: Row 6, Col 6  (current guess: A)
+  #2: Row 6, Col 7  (current guess: A)
+  #3: Row 8, Col 0  (current guess: C)
+  #4: Row 8, Col 1  (current guess: C)
+  #5: Row 8, Col 2  (current guess: B)
+  #6: Row 8, Col 3  (current guess: B)
+  #7: Row 8, Col 4  (current guess: B)
+  #8: Row 8, Col 5  (current guess: B)
+  #9: Row 8, Col 6  (current guess: B)
+  #10: Row 8, Col 7  (current guess: B)
+
+=== BLUE WING ===
+  #0: Row 0, Col 8  (current guess: C)
+  #1: Row 0, Col 9  (current guess: C)
+  #2: Row 0, Col 14  (current guess: B)
+  #3: Row 0, Col 15  (current guess: B)
+  #4: Row 2, Col 8  (current guess: B)
+  #5: Row 2, Col 14  (current guess: B)
+  #6: Row 4, Col 8  (current guess: B)
+  #7: Row 4, Col 9  (current guess: B)
+  #8: Row 4, Col 10  (current guess: B)
+  #9: Row 4, Col 11  (current guess: B)
+  #10: Row 4, Col 12  (current guess: B)
+  #11: Row 4, Col 13  (current guess: B)
+  #12: Row 4, Col 14  (current guess: B)
+  #13: Row 4, Col 15  (current guess: B)
+  #14: Row 6, Col 8  (current guess: A)
+  #15: Row 6, Col 9  (current guess: B)
+  #16: Row 6, Col 10  (current guess: B)
+  #17: Row 6, Col 11  (current guess: B)
+  #18: Row 6, Col 12  (current guess: B)
+  #19: Row 6, Col 13  (current guess: B)
+  #20: Row 6, Col 14  (current guess: B)
+  #21: Row 6, Col 15  (current guess: A)
+
+=== GREEN WING ===
+  #0: Row 8, Col 8  (current guess: A)
+  #1: Row 8, Col 10  (current guess: B)
+  #2: Row 8, Col 11  (current guess: B)
+  #3: Row 8, Col 13  (current guess: B)
+  #4: Row 8, Col 14  (current guess: B)
+  #5: Row 8, Col 15  (current guess: A)
+
+=== PINK WING ===
+  #0: Row 10, Col 8  (current guess: B)
+  #1: Row 10, Col 9  (current guess: B)
+  #2: Row 10, Col 11  (current guess: B)
+  #3: Row 10, Col 12  (current guess: B)
+  #4: Row 10, Col 13  (current guess: A)
+  #5: Row 10, Col 14  (current guess: A)
+  #6: Row 10, Col 15  (current guess: A)
+
+=== YELLOW WING ===
+  #0: Row 10, Col 0  (current guess: B)
+  #1: Row 10, Col 1  (current guess: B)
+  #2: Row 10, Col 2  (current guess: B)
+  #3: Row 10, Col 3  (current guess: B)
+
+=== BROWN WING ===
+  #0: Row 10, Col 4  (current guess: B)
+  #1: Row 10, Col 5  (current guess: B)
+  #2: Row 10, Col 6  (current guess: B)
+  #3: Row 10, Col 7  (current guess: B)
+

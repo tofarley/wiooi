@@ -1,0 +1,10 @@
+[gd_scene format=3 uid="uid://bdqr6r6tba6gh"]
+
+[ext_resource type="Script" uid="uid://xoe0qpe1lcr0" path="res://scripts/battle_select.gd" id="1_6rp8x"]
+
+[node name="BattleSelect" type="Control" unique_id=1187816206]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1_6rp8x")

@@ -1,0 +1,10 @@
+[gd_scene format=3 uid="uid://dyfh4gov1cuo7"]
+
+[ext_resource type="Script" uid="uid://7tb2trsyvit6" path="res://scripts/combat_phase_ui.gd" id="1_4wyix"]
+
+[node name="CombatPhaseUI" type="Control" unique_id=1428046241]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1_4wyix")
