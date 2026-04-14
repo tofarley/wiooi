@@ -18,6 +18,7 @@ var support_units: Array = []
 var eligible_attackers: Array = []
 var eligible_defenders: Array = []
 var attacks_made: Array = []  # track which units already attacked/supported
+var attacked_defenders: Array = []  # track which enemy units were already targeted
 
 # Result state
 var final_cc: String = ""
@@ -42,6 +43,7 @@ func setup(p_main: Node2D, p_units: Array, p_grid: Node, p_wing_color: String, p
 	current_player_index = p_player
 	is_bonus_combat = p_bonus
 	attacks_made.clear()
+	attacked_defenders.clear()
 	_build_ui()
 	_begin_select_attacker()
 
@@ -167,7 +169,7 @@ func _get_adjacent_enemies(unit: Node2D) -> Array:
 	for off in [Vector2i(1,0), Vector2i(-1,0), Vector2i(0,1), Vector2i(0,-1)]:
 		var adj_pos = unit.grid_pos + off
 		var adj_unit = grid.get_unit_at(adj_pos)
-		if adj_unit and adj_unit.faction != unit.faction:
+		if adj_unit and adj_unit.faction != unit.faction and adj_unit not in attacked_defenders:
 			enemies.append(adj_unit)
 	return enemies
 
@@ -258,10 +260,47 @@ func handle_click(grid_pos: Vector2i) -> void:
 		CombatStep.SELECT_DEFENDER:
 			if clicked_unit and clicked_unit in eligible_defenders:
 				_select_defender(clicked_unit)
+			elif clicked_unit == primary_attacker:
+				# Click attacker again to deselect and go back
+				_cancel_attacker()
 		CombatStep.CONFIRM_ATTACK:
-			pass  # Use roll button
+			# Click defender to deselect it
+			if clicked_unit == defender:
+				_cancel_defender()
+			# Click attacker to go all the way back
+			elif clicked_unit == primary_attacker:
+				_cancel_attacker()
 		CombatStep.ALLOCATE_EXHAUSTION:
 			_handle_exhaustion_click(clicked_unit)
+
+func _cancel_attacker() -> void:
+	# Go back to attacker selection
+	if defender:
+		defender.set_selected(false)
+	if primary_attacker:
+		primary_attacker.set_selected(false)
+	for u in support_units:
+		u.set_selected(false)
+	defender = null
+	primary_attacker = null
+	support_units.clear()
+	roll_button.visible = false
+	_begin_select_attacker()
+
+func _cancel_defender() -> void:
+	# Go back to defender selection, keep attacker
+	if defender:
+		defender.set_selected(false)
+	for u in support_units:
+		u.set_selected(false)
+	defender = null
+	support_units.clear()
+	roll_button.visible = false
+	step = CombatStep.SELECT_DEFENDER
+	eligible_defenders = _get_adjacent_enemies(primary_attacker)
+	action_label.text = "Select DEFENDER"
+	detail_label.text = "Click an enemy adjacent to %s.\nClick attacker to cancel." % primary_attacker.unit_name
+	skip_button.visible = true
 
 func _select_attacker(unit: Node2D) -> void:
 	# Deselect all
@@ -273,10 +312,11 @@ func _select_attacker(unit: Node2D) -> void:
 	# Find eligible defenders
 	eligible_defenders = _get_adjacent_enemies(primary_attacker)
 	action_label.text = "Select DEFENDER"
-	detail_label.text = "Click an enemy adjacent to %s." % primary_attacker.unit_name
+	detail_label.text = "Click an enemy adjacent to %s.\nClick attacker to cancel." % primary_attacker.unit_name
 
 func _select_defender(unit: Node2D) -> void:
 	defender = unit
+	defender.set_selected(true)
 	support_units = _get_support_units(primary_attacker, defender)
 	step = CombatStep.CONFIRM_ATTACK
 	# Calculate combat preview
@@ -288,6 +328,7 @@ func _select_defender(unit: Node2D) -> void:
 	var type_names = ["HO", "HI", "LI", "LH"]
 	var atk_type = type_names[primary_attacker.unit_type]
 	var def_type = type_names[defender.unit_type]
+	skip_button.visible = false
 	action_label.text = "ATTACK: %s (%s %s) → %s (%s)" % [primary_attacker.unit_name, atk_type, final_cc, defender.unit_name, def_type]
 	var details = "UTMM: %+d" % utmm_drm
 	if support_units.size() > 0:
@@ -296,9 +337,15 @@ func _select_defender(unit: Node2D) -> void:
 		details += " | Bonus: -1"
 	details += "\nFinal DRM: %+d | CC: %s" % [final_drm, final_cc]
 	details += "\nSupport: %d units" % support_units.size()
+	details += "\nClick defender/attacker to cancel"
 	detail_label.text = details
 	roll_button.visible = true
 	roll_button.text = "Roll d8"
+	# Ensure roll button is connected to _on_roll (reconnect after previous attack)
+	if roll_button.pressed.is_connected(_apply_result):
+		roll_button.pressed.disconnect(_apply_result)
+	if not roll_button.pressed.is_connected(_on_roll):
+		roll_button.pressed.connect(_on_roll)
 	skip_button.visible = false
 	# Highlight support units
 	for u in support_units:
@@ -319,6 +366,7 @@ func _on_roll() -> void:
 func _apply_result() -> void:
 	roll_button.pressed.disconnect(_apply_result)
 	# Mark all participants as having attacked
+	attacked_defenders.append(defender)
 	attacks_made.append(primary_attacker)
 	for u in support_units:
 		attacks_made.append(u)

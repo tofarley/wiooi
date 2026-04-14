@@ -31,6 +31,25 @@ var unit_counter_scene = preload("res://scenes/unit_counter.tscn")
 var command_phase_scene = preload("res://scenes/command_phase_ui.tscn")
 var combat_phase_scene = preload("res://scenes/combat_phase_ui.tscn")
 var combat_ui: Control = null
+var rally_phase_scene = preload("res://scenes/rally_phase_ui.tscn")
+var rally_ui: Control = null
+
+# Current rally limits (can decrease during game)
+var p1_rally_limit: int = 0
+var p2_rally_limit: int = 0
+
+# Skirmish zone tracking: wing_color -> bool (true = zone intact)
+var skirmish_zones_intact: Dictionary = {}
+# Skirmish factors per player
+var p1_skirmish_factor: int = 0
+var p2_skirmish_factor: int = 0
+
+# Skirmish hit allocation state
+var skirmish_hits_remaining: int = 0
+var skirmish_target_wing: String = ""
+var skirmish_target_faction: int = -1
+var skirmish_callback: Callable
+var skirmish_alloc_panel: Control = null
 var command_ui: Control = null
 
 # Active command state
@@ -42,6 +61,7 @@ var is_bonus_move: bool = false
 var move_points_remaining: int = 0
 var wing_move_mode: bool = false  # true = moving whole wing, false = individual
 var move_history: Array = []  # Array of snapshots for undo
+var move_phase_panel: Control = null
 
 # Fixed action phase execution order per rulebook section 4.0
 const ACTION_ORDER = ["Skirmish", "Rally", "Move", "Combat"]
@@ -49,6 +69,12 @@ const ACTION_ORDER = ["Skirmish", "Rally", "Move", "Combat"]
 # Initiative: 0 = player1 holds it, 1 = player2 holds it
 var initiative_holder: int = 0
 var used_initiative_this_turn: bool = false
+
+# Strategos state
+var is_strategos_turn: bool = false
+var strategos_command: String = ""
+var strategos_wing_list: Array = []  # wing colors to iterate through
+var strategos_wing_index: int = 0
 
 var player1_name: String = "Player 1"
 var player2_name: String = "Player 2"
@@ -80,6 +106,12 @@ func _ready() -> void:
 			current_player_index = 1
 		else:
 			current_player_index = 0
+		# Set rally limits
+		p1_rally_limit = battle_config.player1.rally_limit
+		p2_rally_limit = battle_config.player2.rally_limit
+		p1_skirmish_factor = battle_config.player1.skirmish_factor
+		p2_skirmish_factor = battle_config.player2.skirmish_factor
+		_init_skirmish_zones()
 		# Set initial initiative holder
 		if battle_config.player1.has_initiative:
 			initiative_holder = 0
@@ -104,18 +136,19 @@ func _setup_ui() -> void:
 	end_turn_button.pressed.connect(_on_end_turn_pressed)
 	var panel_bg = ColorRect.new()
 	panel_bg.color = Color(0.08, 0.08, 0.12, 0.80)
-	panel_bg.size = Vector2(200, 270)
+	panel_bg.size = Vector2(200, 240)
 	panel_bg.position = Vector2(10, 10)
 	ui_layer.add_child(panel_bg)
 	ui_layer.move_child(panel_bg, 0)
 	turn_label.add_theme_font_size_override("font_size", 14)
 	turn_label.add_theme_color_override("font_color", Color(1, 1, 1))
 	phase_label.add_theme_font_size_override("font_size", 15)
-	end_turn_button.add_theme_font_size_override("font_size", 14)
+	end_turn_button.add_theme_font_size_override("font_size", 11)
+	end_turn_button.text = "Skip Turn (Debug)"
+	end_turn_button.visible = false
 	initiative_label = Label.new()
-	initiative_label.position = Vector2(20, 70)
-	# Move the scene's EndTurnButton down to make room
-	end_turn_button.position = Vector2(20, 92)
+	initiative_label.position = Vector2(20, 68)
+
 	initiative_label.add_theme_font_size_override("font_size", 13)
 	initiative_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.30))
 	initiative_label.text = "Initiative: ---"
@@ -123,13 +156,13 @@ func _setup_ui() -> void:
 	ui_layer.add_child(initiative_label)
 	var back_btn = Button.new()
 	back_btn.text = "Back to Menu"
-	back_btn.position = Vector2(20, 116)
+	back_btn.position = Vector2(20, 90)
 	back_btn.add_theme_font_size_override("font_size", 12)
 	back_btn.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/battle_select.tscn"))
 	ui_layer.add_child(back_btn)
 	var info = Label.new()
 	info.text = "LClick: Select/Move\nRClick: Flip | RDrag: Pan\nScroll: Zoom\nArrows: Move wing\nZ: Undo | Enter: Done\nEsc: Cancel"
-	info.position = Vector2(20, 148)
+	info.position = Vector2(20, 120)
 	info.add_theme_font_size_override("font_size", 11)
 	info.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
 	ui_layer.add_child(info)
@@ -340,6 +373,489 @@ func _update_rally_marker(marker: Node2D, edge: int, new_limit: int) -> void:
 	var limit = clampi(new_limit, 0, 4)
 	marker.position = Vector2(x, y_map.get(limit, y_map.get(0, 207)))
 
+# =================== STRATEGOS ===================
+
+func _strategos_next_wing() -> void:
+	if strategos_wing_index >= strategos_wing_list.size():
+		# All wings have performed the action
+		_strategos_done()
+		return
+	active_wing_color = strategos_wing_list[strategos_wing_index]
+	_update_ui()
+	phase_label.text += " - STRATEGOS: %s for %s" % [strategos_command, active_wing_color]
+	# Execute the command for this wing
+	match strategos_command:
+		"Move":
+			_enter_move_phase(false)
+		"Combat":
+			_enter_combat_phase()
+		"Rally":
+			_enter_rally_phase()
+		"Skirmish":
+			_enter_skirmish_phase()
+		_:
+			# Unknown command, skip
+			strategos_wing_index += 1
+			_strategos_next_wing()
+
+func _strategos_done() -> void:
+	is_strategos_turn = false
+	strategos_command = ""
+	strategos_wing_list.clear()
+	strategos_wing_index = 0
+	active_wing_color = ""
+	_end_action_phases()
+
+# =================== SKIRMISH PHASE ===================
+
+func _init_skirmish_zones() -> void:
+	skirmish_zones_intact.clear()
+	# All on-map wings start with skirmish zones intact
+	for p in [battle_config.player1, battle_config.player2]:
+		for w in p.wings:
+			if not w.off_map:
+				skirmish_zones_intact[w.color_name] = true
+
+func _start_skirmish_allocation(hits: int, target_wing: String, target_faction: int, callback: Callable) -> void:
+	skirmish_hits_remaining = hits
+	skirmish_target_wing = target_wing
+	skirmish_target_faction = target_faction
+	skirmish_callback = callback
+	# Show allocation UI on right side
+	var panel = PanelContainer.new()
+	panel.name = "SkirmishAllocPanel"
+	skirmish_alloc_panel = panel
+	panel.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
+	panel.offset_left = -320
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color(0.14, 0.10, 0.10)
+	style.border_width_left = 2
+	style.border_color = Color(0.8, 0.3, 0.2)
+	style.content_margin_left = 16
+	style.content_margin_right = 16
+	style.content_margin_top = 14
+	style.content_margin_bottom = 14
+	panel.add_theme_stylebox_override("panel", style)
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.add_child(vbox)
+	var title = Label.new()
+	title.name = "AllocTitle"
+	title.text = "SKIRMISH HITS"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 18)
+	title.add_theme_color_override("font_color", Color(0.9, 0.4, 0.25))
+	vbox.add_child(title)
+	vbox.add_child(HSeparator.new())
+	var desc = Label.new()
+	desc.name = "AllocDesc"
+	desc.text = "Click %d fresh %s unit(s) to exhaust" % [hits, target_wing]
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.add_theme_font_size_override("font_size", 14)
+	desc.add_theme_color_override("font_color", Color(0.85, 0.70, 0.55))
+	vbox.add_child(desc)
+	ui_layer.add_child(panel)
+	# Highlight eligible units
+	for u in all_units:
+		if u.faction == target_faction and u.wing_color == target_wing and not u.is_exhausted:
+			u.set_selected(true)
+
+
+func _handle_skirmish_allocation_click(grid_pos: Vector2i) -> void:
+	var clicked = grid.get_unit_at(grid_pos)
+	if not clicked:
+		return
+	if clicked.faction != skirmish_target_faction or clicked.wing_color != skirmish_target_wing:
+		return
+	if clicked.is_exhausted:
+		return
+	# Exhaust this unit
+	clicked.is_exhausted = true
+	clicked.flip()
+	clicked.set_selected(false)
+	skirmish_hits_remaining -= 1
+	if skirmish_hits_remaining <= 0:
+		# Done allocating - reset state before callback
+		skirmish_hits_remaining = 0
+		for u in all_units:
+			u.set_selected(false)
+		if skirmish_alloc_panel:
+			skirmish_alloc_panel.queue_free()
+			skirmish_alloc_panel = null
+		var cb = skirmish_callback
+		skirmish_callback = Callable()
+		cb.call()
+	else:
+		# Update the label
+		if skirmish_alloc_panel:
+			var vbox = skirmish_alloc_panel.get_child(0)
+			if vbox:
+				var desc = vbox.get_node_or_null("AllocDesc")
+				if desc:
+					desc.text = "Click %d more fresh %s unit(s) to exhaust" % [skirmish_hits_remaining, skirmish_target_wing]
+
+func _check_skirmish_zone_contact() -> void:
+	# Called after any movement - check if enemy foot is now adjacent to a wing
+	# If so, that wing's skirmish zone disappears
+	for wing_color in skirmish_zones_intact:
+		if not skirmish_zones_intact[wing_color]:
+			continue
+		# Find which faction owns this wing
+		var wing_faction = -1
+		for u in all_units:
+			if u.wing_color == wing_color:
+				wing_faction = u.faction
+				break
+		if wing_faction < 0:
+			continue
+		# Check if any enemy foot unit is adjacent to any unit of this wing
+		var zone_broken = false
+		for u in all_units:
+			if u.faction != wing_faction or u.wing_color != wing_color:
+				continue
+			for off in [Vector2i(1,0), Vector2i(-1,0), Vector2i(0,1), Vector2i(0,-1)]:
+				var adj = grid.get_unit_at(u.grid_pos + off)
+				if adj and adj.faction != wing_faction and adj.is_foot():
+					zone_broken = true
+					break
+			if zone_broken:
+				break
+		if zone_broken:
+			skirmish_zones_intact[wing_color] = false
+
+func _get_skirmish_zone_cells(wing_color: String) -> Array:
+	# Returns cells in the skirmish zone (3 squares forward for foot, 2 in all dirs for horse)
+	if not skirmish_zones_intact.get(wing_color, false):
+		return []
+	# Find wing's faction and forward direction
+	var wing_faction = -1
+	var is_horse_wing = true
+	for u in all_units:
+		if u.wing_color == wing_color:
+			wing_faction = u.faction
+			if u.is_foot():
+				is_horse_wing = false
+			break
+	if wing_faction < 0:
+		return []
+	var fwd = 1 if wing_faction == 0 else -1
+	if battle_config:
+		var player = battle_config.player1 if wing_faction == 0 else battle_config.player2
+		fwd = 1 if player.edge == 1 else -1
+	var zone_cells = {}
+	for u in all_units:
+		if u.wing_color != wing_color or u.faction != wing_faction:
+			continue
+		if is_horse_wing:
+			# 2 squares in all 8 directions
+			for dx in range(-2, 3):
+				for dy in range(-2, 3):
+					if dx == 0 and dy == 0:
+						continue
+					var cell = Vector2i(u.grid_pos.x + dx, u.grid_pos.y + dy)
+					if grid.is_valid_cell(cell):
+						zone_cells[cell] = true
+		else:
+			# 3 squares forward in a straight line
+			for dist in range(1, 4):
+				var cell = Vector2i(u.grid_pos.x, u.grid_pos.y + fwd * dist)
+				if grid.is_valid_cell(cell):
+					zone_cells[cell] = true
+	return zone_cells.keys()
+
+func _can_target_wing(acting_wing: String, target_wing: String) -> bool:
+	# Check if acting wing can demonstrate a straight line to target wing
+	var acting_faction = -1
+	var fwd = 1
+	for u in all_units:
+		if u.wing_color == acting_wing:
+			acting_faction = u.faction
+			break
+	if acting_faction < 0:
+		return false
+	if battle_config:
+		var player = battle_config.player1 if acting_faction == 0 else battle_config.player2
+		fwd = 1 if player.edge == 1 else -1
+	for u in all_units:
+		if u.wing_color != acting_wing or u.faction != acting_faction:
+			continue
+		# Trace straight line forward from this unit
+		var check_pos = u.grid_pos
+		for dist in range(1, grid.ROWS):
+			check_pos = Vector2i(u.grid_pos.x, u.grid_pos.y + fwd * dist)
+			if not grid.is_valid_cell(check_pos):
+				break
+			var target = grid.get_unit_at(check_pos)
+			if target and target.wing_color == target_wing and target.faction != acting_faction:
+				return true
+	return false
+
+func _is_wing_in_skirmish_zone(acting_wing: String, target_wing: String) -> bool:
+	var zone_cells = _get_skirmish_zone_cells(acting_wing)
+	for u in all_units:
+		if u.wing_color == target_wing:
+			if u.grid_pos in zone_cells:
+				return true
+	return false
+
+func _enter_skirmish_phase() -> void:
+	var sf = p1_skirmish_factor if current_player_index == 0 else p2_skirmish_factor
+	if sf <= 0 or not skirmish_zones_intact.get(active_wing_color, false):
+		# Can't skirmish - no factor or zone gone
+		current_action_index += 1
+		_begin_next_action()
+		return
+	_show_skirmish_ui()
+
+func _show_skirmish_ui() -> void:
+	var sf = p1_skirmish_factor if current_player_index == 0 else p2_skirmish_factor
+	var is_bonus = "Bonus" in active_commands and "Skirmish" in active_commands
+	# Find targetable enemy wings
+	var enemy_faction = 1 if current_player_index == 0 else 0
+	var enemy_wings = {}
+	for u in all_units:
+		if u.faction == enemy_faction:
+			enemy_wings[u.wing_color] = true
+	var targetable = []
+	for ew in enemy_wings:
+		if _can_target_wing(active_wing_color, ew):
+			targetable.append(ew)
+	if targetable.is_empty():
+		current_action_index += 1
+		_begin_next_action()
+		return
+	# Build UI panel
+	var panel = PanelContainer.new()
+	panel.name = "SkirmishUI"
+	panel.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
+	panel.offset_left = -320
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color(0.10, 0.09, 0.11)
+	style.border_width_left = 2
+	style.border_color = Color(0.6, 0.5, 0.15)
+	style.content_margin_left = 16
+	style.content_margin_right = 16
+	style.content_margin_top = 14
+	style.content_margin_bottom = 14
+	panel.add_theme_stylebox_override("panel", style)
+	
+	var scroll = ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	panel.add_child(scroll)
+	
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(vbox)
+	
+	var title = Label.new()
+	title.text = "SKIRMISH PHASE"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 18)
+	title.add_theme_color_override("font_color", Color(0.75, 0.60, 0.20))
+	vbox.add_child(title)
+	vbox.add_child(HSeparator.new())
+	
+	var info = Label.new()
+	info.text = "%s wing skirmishing\nSkirmish Factor: %d\nSelect target enemy wing:" % [active_wing_color, sf]
+	info.add_theme_font_size_override("font_size", 13)
+	info.add_theme_color_override("font_color", Color(0.8, 0.75, 0.65))
+	vbox.add_child(info)
+	
+	# Target wing buttons
+	for tw in targetable:
+		var btn = Button.new()
+		var in_zone = _is_wing_in_skirmish_zone(active_wing_color, tw)
+		var zone_text = " (IN ZONE - 2 hits)" if in_zone else " (1 hit)"
+		btn.text = "%s Wing%s" % [tw, zone_text]
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.custom_minimum_size = Vector2(0, 36)
+		btn.add_theme_font_size_override("font_size", 13)
+		var _sf = sf
+		var _is_bonus = is_bonus
+		var _tw = tw
+		var _in_zone = in_zone
+		btn.pressed.connect(func(): _resolve_skirmish(_tw, _sf, _is_bonus, _in_zone, panel))
+		vbox.add_child(btn)
+	
+	vbox.add_child(HSeparator.new())
+	var skip_btn = Button.new()
+	skip_btn.text = "Skip Skirmish"
+	skip_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	skip_btn.custom_minimum_size = Vector2(0, 36)
+	skip_btn.add_theme_font_size_override("font_size", 14)
+	skip_btn.pressed.connect(func():
+		panel.queue_free()
+		current_action_index += 1
+		_begin_next_action()
+	)
+	vbox.add_child(skip_btn)
+	
+	ui_layer.add_child(panel)
+
+func _resolve_skirmish(target_wing: String, sf: int, is_bonus: bool, in_zone: bool, panel_ref: Control) -> void:
+	var die = CombatResolver.roll_d8()
+	var total = die + sf
+	var hits = 0
+	var result_text = "Roll: %d + SF %d = %d" % [die, sf, total]
+	if total >= 8:
+		hits = 2 if in_zone else 1
+		result_text += " >= 8: %d hit(s)!" % hits
+	else:
+		result_text += " < 8: Miss!"
+	# Show result in a dialog
+	panel_ref.queue_free()
+	var result_panel = PanelContainer.new()
+	result_panel.name = "SkirmishResult"
+	result_panel.set_anchors_preset(Control.PRESET_CENTER)
+	result_panel.custom_minimum_size = Vector2(350, 180)
+	result_panel.offset_left = -175
+	result_panel.offset_top = -90
+	var rs = StyleBoxFlat.new()
+	rs.bg_color = Color(0.12, 0.10, 0.14)
+	rs.corner_radius_top_left = 12
+	rs.corner_radius_top_right = 12
+	rs.corner_radius_bottom_left = 12
+	rs.corner_radius_bottom_right = 12
+	rs.border_width_top = 2
+	rs.border_width_bottom = 2
+	rs.border_width_left = 2
+	rs.border_width_right = 2
+	rs.border_color = Color(0.6, 0.5, 0.15)
+	rs.content_margin_left = 20
+	rs.content_margin_right = 20
+	rs.content_margin_top = 16
+	rs.content_margin_bottom = 16
+	result_panel.add_theme_stylebox_override("panel", rs)
+	var rv = VBoxContainer.new()
+	rv.add_theme_constant_override("separation", 10)
+	result_panel.add_child(rv)
+	var rt = Label.new()
+	rt.text = "SKIRMISH RESULT"
+	rt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rt.add_theme_font_size_override("font_size", 16)
+	rt.add_theme_color_override("font_color", Color(0.75, 0.60, 0.20))
+	rv.add_child(rt)
+	var rd = Label.new()
+	rd.text = result_text
+	rd.add_theme_font_size_override("font_size", 13)
+	rd.add_theme_color_override("font_color", Color(0.8, 0.75, 0.65))
+	rv.add_child(rd)
+	var ok_btn = Button.new()
+	ok_btn.text = "OK"
+	ok_btn.custom_minimum_size = Vector2(80, 32)
+	ok_btn.add_theme_font_size_override("font_size", 14)
+	var _is_bonus = is_bonus
+	var _target_wing = target_wing
+	var _sf = sf
+	var _hits = hits
+	ok_btn.pressed.connect(func():
+		result_panel.queue_free()
+		if _hits > 0:
+			var enemy_faction = 1 if current_player_index == 0 else 0
+			_start_skirmish_allocation(_hits, _target_wing, enemy_faction, func():
+				if _is_bonus:
+					_resolve_bonus_skirmish_2(_target_wing, _sf)
+				else:
+					current_action_index += 1
+					_begin_next_action()
+			)
+		elif _is_bonus:
+			_resolve_bonus_skirmish_2(_target_wing, _sf)
+		else:
+			current_action_index += 1
+			_begin_next_action()
+	)
+	rv.add_child(ok_btn)
+	ui_layer.add_child(result_panel)
+
+func _resolve_bonus_skirmish_2(target_wing: String, sf: int) -> void:
+	var in_zone = _is_wing_in_skirmish_zone(active_wing_color, target_wing)
+	var die = CombatResolver.roll_d8()
+	var total = die + sf
+	var hits = 0
+	var result_text = "BONUS Skirmish Roll: %d + SF %d = %d" % [die, sf, total]
+	if total >= 8:
+		hits = 2 if in_zone else 1
+		result_text += " >= 8: %d hit(s)!" % hits
+	else:
+		result_text += " < 8: Miss!"
+	# Show result
+	var result_panel = PanelContainer.new()
+	result_panel.name = "SkirmishResult2"
+	result_panel.set_anchors_preset(Control.PRESET_CENTER)
+	result_panel.custom_minimum_size = Vector2(350, 180)
+	result_panel.offset_left = -175
+	result_panel.offset_top = -90
+	var rs = StyleBoxFlat.new()
+	rs.bg_color = Color(0.12, 0.10, 0.14)
+	rs.corner_radius_top_left = 12
+	rs.corner_radius_top_right = 12
+	rs.corner_radius_bottom_left = 12
+	rs.corner_radius_bottom_right = 12
+	rs.border_width_top = 2
+	rs.border_width_bottom = 2
+	rs.border_width_left = 2
+	rs.border_width_right = 2
+	rs.border_color = Color(0.6, 0.5, 0.15)
+	rs.content_margin_left = 20
+	rs.content_margin_right = 20
+	rs.content_margin_top = 16
+	rs.content_margin_bottom = 16
+	result_panel.add_theme_stylebox_override("panel", rs)
+	var rv = VBoxContainer.new()
+	rv.add_theme_constant_override("separation", 10)
+	result_panel.add_child(rv)
+	var rt = Label.new()
+	rt.text = "BONUS SKIRMISH RESULT"
+	rt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rt.add_theme_font_size_override("font_size", 16)
+	rt.add_theme_color_override("font_color", Color(0.75, 0.60, 0.20))
+	rv.add_child(rt)
+	var rd = Label.new()
+	rd.text = result_text
+	rd.add_theme_font_size_override("font_size", 13)
+	rd.add_theme_color_override("font_color", Color(0.8, 0.75, 0.65))
+	rv.add_child(rd)
+	var ok_btn = Button.new()
+	ok_btn.text = "OK"
+	ok_btn.custom_minimum_size = Vector2(80, 32)
+	ok_btn.add_theme_font_size_override("font_size", 14)
+	var _hits2 = hits
+	ok_btn.pressed.connect(func():
+		result_panel.queue_free()
+		if _hits2 > 0:
+			var enemy_faction = 1 if current_player_index == 0 else 0
+			_start_skirmish_allocation(_hits2, target_wing, enemy_faction, func():
+				current_action_index += 1
+				_begin_next_action()
+			)
+		else:
+			current_action_index += 1
+			_begin_next_action()
+	)
+	rv.add_child(ok_btn)
+	ui_layer.add_child(result_panel)
+
+# =================== RALLY PHASE ===================
+
+func _enter_rally_phase() -> void:
+	var is_bonus = "Bonus" in active_commands and "Rally" in active_commands
+	var rl = p1_rally_limit if current_player_index == 0 else p2_rally_limit
+	rally_ui = rally_phase_scene.instantiate()
+	ui_layer.add_child(rally_ui)
+	rally_ui.setup(all_units, grid, active_wing_color, current_player_index, is_bonus, rl)
+	rally_ui.rally_phase_done.connect(_on_rally_done)
+	phase_label.text += " - RALLY %s" % active_wing_color
+
+func _on_rally_done() -> void:
+	if rally_ui:
+		rally_ui.queue_free()
+		rally_ui = null
+	current_action_index += 1
+	_begin_next_action()
+
 # =================== COMBAT PHASE ===================
 
 func _enter_combat_phase() -> void:
@@ -483,7 +999,8 @@ func _open_command_phase() -> void:
 	
 	command_ui = command_phase_scene.instantiate()
 	ui_layer.add_child(command_ui)
-	command_ui.setup(wings, player.player_name)
+	var rl = p1_rally_limit if current_player_index == 0 else p2_rally_limit
+	command_ui.setup(wings, player.player_name, rl)
 	command_ui.commands_selected.connect(_on_commands_confirmed)
 	command_ui.cancelled.connect(_on_commands_cancelled)
 
@@ -516,15 +1033,45 @@ func _on_commands_confirmed(wing_index: int, cmd1: String, cmd2: String) -> void
 	if command_ui:
 		command_ui.queue_free()
 		command_ui = null
-	_begin_next_action()
+	# Check for Strategos
+	if special == "Strategos":
+		is_strategos_turn = true
+		strategos_command = sorted_cmds[0] if sorted_cmds.size() > 0 else ""
+		# Build list of all on-map wings for this player
+		strategos_wing_list.clear()
+		for w in player.wings:
+			if not w.off_map:
+				strategos_wing_list.append(w.color_name)
+		strategos_wing_index = 0
+		# Decrement rally limit
+		if current_player_index == 0:
+			p1_rally_limit = maxi(p1_rally_limit - 1, 0)
+			_update_rally_marker(rally_marker_p1, battle_config.player1.edge, p1_rally_limit)
+		else:
+			p2_rally_limit = maxi(p2_rally_limit - 1, 0)
+			_update_rally_marker(rally_marker_p2, battle_config.player2.edge, p2_rally_limit)
+		# Start with first wing
+		_strategos_next_wing()
+	else:
+		is_strategos_turn = false
+		_begin_next_action()
 
 func _begin_next_action() -> void:
+	# If in strategos mode, the phase just finished for one wing - advance to next wing
+	if is_strategos_turn:
+		strategos_wing_index += 1
+		_strategos_next_wing()
+		return
 	if current_action_index >= active_commands.size():
 		_end_action_phases()
 		return
 	var cmd = active_commands[current_action_index]
 	if cmd == "Move":
 		_enter_move_phase(false)
+	elif cmd == "Skirmish":
+		_enter_skirmish_phase()
+	elif cmd == "Rally":
+		_enter_rally_phase()
 	elif cmd == "Combat":
 		_enter_combat_phase()
 	elif cmd == "Bonus":
@@ -548,8 +1095,65 @@ func _enter_move_phase(bonus: bool) -> void:
 	_update_ui()
 	var suffix = " (Bonus)" if bonus else ""
 	phase_label.text += " - MOVE %s%s" % [active_wing_color, suffix]
+	_show_move_phase_panel(bonus)
+
+func _show_move_phase_panel(bonus: bool) -> void:
+	if move_phase_panel:
+		move_phase_panel.queue_free()
+	var panel = PanelContainer.new()
+	panel.name = "MovePhasePanel"
+	move_phase_panel = panel
+	panel.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
+	panel.offset_left = -320
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color(0.10, 0.09, 0.11)
+	style.border_width_left = 2
+	style.border_color = Color(0.3, 0.5, 0.2)
+	style.content_margin_left = 16
+	style.content_margin_right = 16
+	style.content_margin_top = 14
+	style.content_margin_bottom = 14
+	panel.add_theme_stylebox_override("panel", style)
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.add_child(vbox)
+	var title = Label.new()
+	title.text = "MOVE PHASE" + (" (BONUS)" if bonus else "")
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 18)
+	title.add_theme_color_override("font_color", Color(0.4, 0.75, 0.35))
+	vbox.add_child(title)
+	vbox.add_child(HSeparator.new())
+	var desc = Label.new()
+	desc.text = "Wing: %s" % active_wing_color
+	if bonus:
+		desc.text += "\nBonus Move: 2 squares, forward only"
+	desc.add_theme_font_size_override("font_size", 13)
+	desc.add_theme_color_override("font_color", Color(0.75, 0.70, 0.60))
+	vbox.add_child(desc)
+	var instructions = Label.new()
+	instructions.text = "Click unit to select group\nArrow keys to move\nZ to undo"
+	instructions.add_theme_font_size_override("font_size", 12)
+	instructions.add_theme_color_override("font_color", Color(0.55, 0.50, 0.45))
+	vbox.add_child(instructions)
+	vbox.add_child(HSeparator.new())
+	var done_btn = Button.new()
+	done_btn.text = "Done Moving"
+	done_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	done_btn.custom_minimum_size = Vector2(0, 40)
+	done_btn.add_theme_font_size_override("font_size", 16)
+	done_btn.pressed.connect(func():
+		_exit_wing_move_mode()
+		_end_move_phase()
+	)
+	vbox.add_child(done_btn)
+	ui_layer.add_child(panel)
 
 func _end_move_phase() -> void:
+	if move_phase_panel:
+		move_phase_panel.queue_free()
+		move_phase_panel = null
 	is_in_move_phase = false
 	_clear_highlights()
 	if selected_unit:
@@ -557,7 +1161,7 @@ func _end_move_phase() -> void:
 		selected_unit = null
 	if not is_bonus_move and "Bonus" in active_commands and "Move" in active_commands:
 		is_bonus_move = true
-		_enter_move_phase(true)
+		call_deferred("_enter_move_phase", true)
 		return
 	current_action_index += 1
 	_begin_next_action()
@@ -571,9 +1175,52 @@ func _end_action_phases() -> void:
 	for u in all_units:
 		if u.faction == current_player_index:
 			u.set_moved(false)
-	# TODO: Victory Phase check here
-	# Initiative Phase
-	_initiative_phase()
+	_update_ui()
+	# Show "Actions Complete" panel before initiative
+	_show_actions_complete_panel()
+
+func _show_actions_complete_panel() -> void:
+	var current_name = player1_name if current_player_index == 0 else player2_name
+	var panel = PanelContainer.new()
+	panel.name = "ActionsCompletePanel"
+	panel.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
+	panel.offset_left = -320
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color(0.10, 0.09, 0.11)
+	style.border_width_left = 2
+	style.border_color = Color(0.5, 0.35, 0.12)
+	style.content_margin_left = 16
+	style.content_margin_right = 16
+	style.content_margin_top = 14
+	style.content_margin_bottom = 14
+	panel.add_theme_stylebox_override("panel", style)
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 14)
+	panel.add_child(vbox)
+	var title = Label.new()
+	title.text = "ACTIONS COMPLETE"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 18)
+	title.add_theme_color_override("font_color", Color(0.85, 0.65, 0.20))
+	vbox.add_child(title)
+	vbox.add_child(HSeparator.new())
+	var desc = Label.new()
+	desc.text = "%s has finished all actions.\nProceeding to Initiative Phase." % current_name
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.add_theme_font_size_override("font_size", 14)
+	desc.add_theme_color_override("font_color", Color(0.75, 0.70, 0.60))
+	vbox.add_child(desc)
+	var btn = Button.new()
+	btn.text = "Continue"
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.custom_minimum_size = Vector2(0, 40)
+	btn.add_theme_font_size_override("font_size", 16)
+	btn.pressed.connect(func():
+		panel.queue_free()
+		_initiative_phase()
+	)
+	vbox.add_child(btn)
+	ui_layer.add_child(panel)
 
 func _on_commands_cancelled() -> void:
 	if command_ui:
@@ -588,6 +1235,7 @@ func _input(event: InputEvent) -> void:
 		if (event.keycode == KEY_SPACE or event.keycode == KEY_ENTER) and is_in_move_phase:
 			_exit_wing_move_mode()
 			_end_move_phase()
+			get_viewport().set_input_as_handled()
 			return
 		if event.keycode == KEY_ESCAPE and wing_move_mode:
 			_exit_wing_move_mode()
@@ -634,7 +1282,14 @@ func _input(event: InputEvent) -> void:
 
 func _handle_left_click(world_pos: Vector2) -> void:
 	var clicked_grid = grid.world_to_grid(world_pos)
-	# Route to combat UI if active
+	# Route to skirmish allocation if active
+	if skirmish_hits_remaining > 0:
+		_handle_skirmish_allocation_click(clicked_grid)
+		return
+	# Route to rally/combat UI if active
+	if rally_ui:
+		rally_ui.handle_click(clicked_grid)
+		return
 	if combat_ui:
 		combat_ui.handle_click(clicked_grid)
 		return
@@ -829,6 +1484,7 @@ func _move_wing_direction(dx: int, dy: int) -> void:
 		if u.move_points_left < min_left:
 			min_left = u.move_points_left
 	move_points_remaining = min_left
+	_check_skirmish_zone_contact()
 	_update_ui()
 	if min_left <= 0:
 		_exit_wing_move_mode()

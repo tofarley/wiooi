@@ -176,6 +176,7 @@ func reset_turn() -> void:
 
 func flip() -> void:
 	is_face_up = !is_face_up
+	is_exhausted = !is_face_up
 	_update_sprite()
 
 func get_input_rect() -> Rect2:

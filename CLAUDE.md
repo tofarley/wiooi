@@ -4,130 +4,124 @@
 Digital implementation of "With It Or On It" by Tom Russell, a counter wargame covering six famous hoplite battles from the Greco-Persian and Peloponnesian Wars. Part of the Shields & Swords Ancients series. Built in **Godot 4.6.2**.
 
 ## Source Material
-- **Rulebook** (`WIOOI_RB.pdf`): 7 pages covering all game mechanics
-- **Battle Book** (`WIOOI_BB.pdf`): 15 pages with historical context + 6 battle setups + player aid card (back page has CRT and UTMM)
+- **Rulebook** (WIOOI_RB.pdf): 7 pages covering all game mechanics
+- **Battle Book** (WIOOI_BB.pdf): 15 pages with 6 battle setups + player aid card (CRT/UTMM on back)
 
 ## Game Basics
-- **Square grid** (26 cols x 20 rows), NOT hexes
-- **Adjacency is orthogonal only** (never diagonal) unless specified
+- Square grid (26 cols x 20 rows), orthogonal adjacency only
 - Two players alternate turns, each activating ONE wing per turn
-- **8-sided die** (d8) for all rolls
-- Units have a **Fresh** (front) and **Exhausted** (back) side
-- Units are double-sided counters with hidden information (leaders, brittle units)
+- d8 for all rolls
+- Units: Fresh (front) / Exhausted (back), double-sided with hidden info
 
 ## Unit Types
-- Hoplite (HO) = 0, Foot, orthogonal movement with facing
-- Heavy Infantry (HI) = 1, Foot, orthogonal with facing
-- Light Infantry (LI) = 2, Foot, orthogonal with facing
-- Light Horse (LH) = 3, Horse, all 8 directions
+- Hoplite (HO) = 0, Foot | Heavy Infantry (HI) = 1, Foot
+- Light Infantry (LI) = 2, Foot | Light Horse (LH) = 3, Horse
+- Foot: orthogonal only, facing rules | Horse: all 8 directions
 
-## Sequence of Play (Section 4.0)
-Each Player Turn:
-1. **Command Phase** - Play 2 commands for one wing (auto-opens at turn start)
-2. **Action Phases** (fixed execution order: Skirmish > Rally > Move > Combat)
-3. **Victory Phase** - NON-ACTING player checks victory
-4. **Initiative Phase** - Acting player may Declare Initiative for double turn
-5. Switch to other player, repeat
+## Sequence of Play
+1. Command Phase (auto-opens at turn start)
+2. Action Phases (fixed order: Skirmish > Rally > Move > Combat)
+3. Victory Phase (NOT YET - opponent checks victory)
+4. Initiative Phase (declare for double turn or decline)
 
-## Command System (Section 5.0)
-Three double-sided command markers:
-- **Move / Combat** (opposite sides of marker 1)
-- **Skirmish / Rally** (opposite sides of marker 2)
-- **Strategos / Bonus** (opposite sides of marker 3)
+## Command System - ALL IMPLEMENTED
+- Move/Combat (marker 1), Skirmish/Rally (marker 2), Strategos/Bonus (marker 3)
+- Play 2 from different markers, auto-sorted to fixed execution order
+- **Bonus** modifies paired command (enhanced effect)
+- **Strategos** applies paired command to ALL wings (costs 1 Rally Limit)
 
-Play 2 commands from different markers. Commands auto-sorted into fixed execution order.
-- **Strategos + X**: X command applies to ALL wings (costs 1 Rally Limit)
-- **Bonus + Move**: Extra move phase (2 squares, forward only)
-- **Bonus + Combat**: -1 to combat die rolls
-- **Bonus + Rally**: +1 to rally attempts
-- **Bonus + Skirmish**: Two skirmish phases
+## All Action Phases - IMPLEMENTED
+- **Move**: 4 squares (1st action) or 2 (2nd action), wing/cluster selection, arrow keys, undo
+- **Bonus Move**: 2 additional squares forward-only after normal move
+- **Combat**: Primary + Support, CC borrowing for hoplites, UTMM + CRT, d8 roll
+- **Rally**: d8 + modifiers, target 8+, natural 1 = eliminated (no rout), owner chooses units
+- **Skirmish**: d8 + Skirmish Factor, target 8+, zone tracking, owner chooses exhaustion targets
+- **Strategos**: Loops through all wings for the paired command, decrements Rally Limit
 
-## Movement Rules (Section 8.0)
-- **First action phase**: 4 squares. **Second action phase**: 2 squares
-- Only **Fresh** units move; Exhausted units stay
-- **Foot**: orthogonal only, face forward (toward enemy edge), cannot move backward
-- **Foot cannot move forward** if no enemy units exist between them and enemy edge
-- **Horse**: all 8 directions
-- **Engagement**: Opposing foot units adjacent AND facing = Engaged, cannot move
-- **Bonus Move**: 2 squares, forward only
-- Per-unit move_points_left tracking allows split cluster movement
-
-## Combat Rules (Section 9.0) - BASIC IMPLEMENTATION
-- Primary Attacker + optional Support units from same wing
-- Support: fresh units adjacent to Primary OR Defender
-- Hoplites can "borrow" higher CC through chain of fresh hoplites (BFS)
-- CC modifiers: +1 vs Exhausted, +1 Flanking, -1 if wing half gone (not HO)
-- DRM from Unit Type Modifier Matrix (UTMM), minus support count, minus bonus
-- CRT cross-reference: modified roll vs CC -> DE/DX/AX/EX/AA
-- NOT YET: Exhaustion allocation choice, proper Rout Check triggers
+## Initiative Phase - IMPLEMENTED
+- Dialog: Declare (pass marker, take double turn) or Decline
+- UI shows who holds initiative with star indicator
 
 ## Project Structure
 ```
 res://
-├── main.tscn                    # Main game scene (map + units)
-├── project.godot                # Main scene = battle_select.tscn
-├── assets/
-│   ├── map.png                  # 3300x2550 game board
-│   ├── counter_atlas.png        # 2992x2244 (16x12 cells at 187px) - unit counters
-│   ├── counters_front.png       # 3263x2513 (17x13) - full sheet inc. command markers
-│   └── counters_back.png        # 3263x2513 - backs
-├── scenes/
-│   ├── battle_select.tscn       # Battle selection screen (main scene)
-│   ├── unit_counter.tscn        # Unit counter prefab
-│   ├── command_phase_ui.tscn    # Command selection panel
-│   └── combat_phase_ui.tscn     # Combat resolution panel
+├── main.tscn, project.godot (main scene = battle_select.tscn)
+├── assets/ (map.png 3300x2550, counter_atlas.png 16x12@187px, counters_front/back.png 17x13)
+├── scenes/ (battle_select, unit_counter, command_phase_ui, combat_phase_ui, rally_phase_ui)
 └── scripts/
-    ├── main.gd                  # Game logic, deployment, movement, input, turn flow
-    ├── grid_manager.gd          # Grid geometry (26x20), pixel coords, cell occupancy
-    ├── unit_counter.gd          # Unit display, atlas mapping, state
-    ├── battle_data.gd           # All 6 battle configs (class_name BattleData)
-    ├── battle_select.gd         # Battle selection UI
-    ├── command_phase_ui.gd      # Command selection panel
-    ├── combat_phase_ui.gd       # Combat resolution UI
-    └── combat_resolver.gd       # CRT + UTMM tables (class_name CombatResolver)
+    ├── main.gd              # Game logic, deployment, all phases, turn flow
+    ├── grid_manager.gd      # Grid geometry (26x20), cell occupancy
+    ├── unit_counter.gd      # Unit display, atlas mapping, CC, state
+    ├── battle_data.gd       # 6 battles + TEST scenario (class_name BattleData)
+    ├── battle_select.gd     # Battle selection UI
+    ├── command_phase_ui.gd  # Command selection (right panel)
+    ├── combat_phase_ui.gd   # Combat resolution (right panel)
+    ├── combat_resolver.gd   # CRT + UTMM tables (class_name CombatResolver)
+    └── rally_phase_ui.gd    # Rally resolution (right panel)
 ```
 
-## Counter Atlas Layout
-- Atlas (counter_atlas.png): 16 cols x 12 rows at 187px per cell
-- Rows come in pairs: even = front, odd = back
-- Left half (cols 0-7): warm colors (Red, Orange, Purple, Yellow, Brown)
-- Right half (cols 8-15): cool colors (Blue, Green, Pink)
-- WING_ATLAS_MAP in unit_counter.gd has exact valid cell lists per wing color
-- WING_CC_MAP maps combat class per counter index per wing color
-- Command markers are in row 12 of counters_front.png (NOT in atlas)
+## Counter Atlas
+- 16 cols x 12 rows @ 187px per cell, even rows = front, odd = back
+- Left half (0-7): warm (Red, Orange, Purple, Yellow, Brown)
+- Right half (8-15): cool (Blue, Green, Pink)
+- WING_ATLAS_MAP + WING_CC_MAP in unit_counter.gd
+- Command markers in row 12 of counters_front.png (not in atlas)
 
-## Grid Geometry (grid_manager.gd)
-- V_LINES: 27 values from 187 to 3112 (column boundaries)
-- H_LINES: 21 values from 151 to 2401 (row boundaries)
-- Center dotted line at x=1650 (col 13)
-- Forward direction: edge 1 player -> +1 (down), edge 2 player -> -1 (up)
+## Grid Geometry
+- V_LINES: 187-3112, H_LINES: 151-2401, center line at x=1650 (col 13)
+- Forward: edge 1 -> +1 (down), edge 2 -> -1 (up)
 
 ## Rally Limit Tracks
-- Left track (Edge 1): x=82, y={0:259, 1:371, 2:484, 3:596, 4:709}
-- Right track (Edge 2): x=3220, y={4:1842, 3:1955, 2:2067, 1:2180, 0:2293}
+- Left (Edge 1): x=82, y={0:259,1:371,2:484,3:596,4:709}
+- Right (Edge 2): x=3220, y={4:1842,3:1955,2:2067,1:2180,0:2293}
 
-## CC Classification (NEEDS REFINEMENT)
-CC letter (A, B, C) is in top-right corner of each counter front face.
-Pixel analysis approach - fragile due to different wing background colors.
-Current WING_CC_MAP likely has misclassifications. User should verify.
+## Movement Details
+- Per-unit move_points_left tracking for split cluster movement
+- Flood-fill cluster selection, click to toggle units in/out
+- Arrow keys move group, Z undo, Enter/Space or Done button to finish
+- Engagement: foot vs foot facing = locked, horse vs horse orthogonal = locked
+- Foot can't move backward, can't advance forward without enemies ahead
+- Bonus move: 2 squares forward-only, call_deferred to prevent Enter double-fire
+
+## Combat Details
+- Select Primary -> Select Defender -> Preview -> Roll d8 -> Apply Result
+- CC borrowing via BFS through fresh hoplite chain
+- CC mods: +1 vs exhausted, +1 flanking, -1 half wing gone (not HO)
+- Results: DE/DX/AX/EX/AA with proper exhaustion/elimination
+- Multiple attacks per phase, each unit participates once, each defender targeted once
+- Click attacker/defender to cancel selection and re-choose
+- Roll button signal properly reconnects between attacks
+
+## Skirmish Details
+- Zone tracking per wing (skirmish_zones_intact dictionary)
+- Foot zones: 3 squares forward, disappear on enemy foot contact
+- Horse zones: 2 squares all directions, never disappear
+- d8 + Skirmish Factor, target 8+, in-zone = 2 hits, out = 1 hit
+- Owner chooses which units to exhaust (right-side allocation panel)
+- Bonus+Skirmish: two rolls against same target
+- Zone contact checked after every wing movement
 
 ## Known Issues
-- Split cluster movement bug: occasionally second cluster can't move (battle-specific?)
-- CC classification needs manual verification against physical counters
-- Wing color names don't match visual appearance (e.g. "Purple" looks pinkish)
-- Canceling command phase leaves player stuck (need re-open mechanism)
-- edit_file and execute_editor_script string replacements are unreliable - ALWAYS verify with read-back
+- CC classification from atlas needs manual verification (A/B detected, C uncertain)
+- Brittle and Leader detection from counter backs not implemented
+- Split cluster movement bug occasionally (battle-specific?)
+- Cancel command phase leaves player stuck
+- edit_file and execute_editor_script string replacements unreliable - always verify
 
-## What's NOT Yet Implemented
-- Skirmish Phase (zones, ranged attacks, skirmish factor)
-- Rally Phase (d8 roll + modifiers, flip exhausted to fresh)
+## NOT YET IMPLEMENTED
 - Rout Checks (adjacency check after combat eliminations)
-- Victory Phase (VP counting, win condition checking)
-- Exhaustion allocation choice in combat
-- Leaders (revealed leader mechanic, rally limit reduction)
-- Brittle Units (immediate elimination on exhaustion)
-- Special Rules per battle
+- Victory Phase (VP counting, win conditions)
+- Exhaustion allocation choice in combat (defender pushing to adjacent)
+- Leaders (revealed on flip, rally limit reduction on death)
+- Brittle units (immediate elimination on exhaustion)
+- Skirmish zone entry stopping movement (8.2)
+- Special rules per battle
+- Multiplayer networking
 
 ## Window/Camera
-- Window: 1728x972, camera zoom 0.36 centered at (1650, 1275)
+- Window: 1728x972, camera zoom 0.36, center (1650, 1275)
 - Faction: PLAYER1=0 (edge 1, top), PLAYER2=1 (edge 2, bottom)
+
+## TEST Battle
+- "TEST - Contact" scenario: 5 units per side, directly adjacent (row 9 vs row 10)
+- For quick testing of combat and rally without movement

@@ -1,0 +1,10 @@
+[gd_scene format=3 uid="uid://ck5u3nh1vwqoy"]
+
+[ext_resource type="Script" uid="uid://7kjn261rdl5h" path="res://scripts/rally_phase_ui.gd" id="1_2ccei"]
+
+[node name="RallyPhaseUI" type="Control" unique_id=1615971278]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1_2ccei")

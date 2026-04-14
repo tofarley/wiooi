@@ -29,6 +29,7 @@ const COMMAND_ICONS = {
 
 var wings_data: Array = []
 var player_name: String = ""
+var current_rally_limit: int = 4
 var selected_wing_index: int = -1
 var selected_commands: Array = []
 var used_marker_indices: Array = []
@@ -42,7 +43,7 @@ var wing_container: VBoxContainer
 func _ready() -> void:
 	_build_ui()
 
-func setup(p_wings: Array, p_player_name: String) -> void:
+func setup(p_wings: Array, p_player_name: String, p_rally_limit: int = 4) -> void:
 	wings_data = p_wings
 	player_name = p_player_name
 	selected_wing_index = -1
@@ -277,6 +278,8 @@ func _update_state() -> void:
 		if "Strategos" in selected_commands:
 			var other = selected_commands[0] if selected_commands[1] == "Strategos" else selected_commands[1]
 			txt += "\nAll wings: " + other + " (RL -1)"
+			if current_rally_limit <= 1:
+				txt += "\n⚠ WARNING: Rally Limit will drop to %d!" % (current_rally_limit - 1)
 		elif "Bonus" in selected_commands:
 			var other = selected_commands[0] if selected_commands[1] == "Bonus" else selected_commands[1]
 			txt += "\nEnhanced " + other

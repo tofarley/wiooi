@@ -49,6 +49,7 @@ static func get_all_battles() -> Array:
 		_olpae(),
 		_delium(),
 		_mantinea(),
+		_test_battle(),
 	]
 
 static func get_battle_names() -> Array:
@@ -59,6 +60,7 @@ static func get_battle_names() -> Array:
 		"Olpae 426 BCE",
 		"Delium 424 BCE",
 		"Mantinea 418 BCE",
+		"TEST - Contact",
 	]
 
 static func get_battle_descriptions() -> Array:
@@ -69,6 +71,7 @@ static func get_battle_descriptions() -> Array:
 		"Demosthenes redeems himself with a cunning ambush against a larger Spartan-led force at Olpae in Acarnania.",
 		"Boeotian hoplites, led by an extra-deep Theban formation, surprise-attack the Athenians. Cavalry may appear from the flanks.",
 		"The largest hoplite battle of the Peloponnesian War. Spartans and Tegeans face the Argive coalition with cavalry on both flanks.",
+		"DEBUG: Small forces starting in contact. For testing combat, rally, and rout.",
 	]
 
 static func get_battle_player_names() -> Array:
@@ -79,6 +82,7 @@ static func get_battle_player_names() -> Array:
 		["Spartan", "Athenian"],
 		["Boeotian", "Athenian"],
 		["Spartan", "Argive"],
+		["Red Army", "Blue Army"],
 	]
 
 # ============ MARATHON 490 BCE ============
@@ -653,4 +657,63 @@ static func _mantinea() -> BattleConfig:
 	b.special_rules = [
 		{"name": "Spartan Training", "text": "All Spartan Hoplite Units fight at +1 CC when the Spartan Player holds Initiative."},
 	]
+	return b
+
+
+# ============ TEST BATTLE - CONTACT ============
+static func _test_battle() -> BattleConfig:
+	var b = BattleConfig.new()
+	b.battle_name = "TEST - Contact"
+	b.year = "DEBUG"
+	b.description = "Small forces starting adjacent for testing combat and rally."
+
+	var p1 = PlayerSetup.new()
+	p1.player_name = "Red Army"
+	p1.edge = 1
+	p1.rally_limit = 4
+	p1.skirmish_factor = 0
+	p1.first_setup = true
+	p1.first_turn = true
+	p1.has_initiative = true
+
+	var w1 = WingSetup.new()
+	w1.wing_name = "Main Wing"
+	w1.color_name = "Red"
+	w1.depth = Depth.SINGLE
+	w1.placement = HPlacement.CENTER
+	w1.edge_distance = 10
+	w1.units = [
+		{"type": UType.HOPLITE, "count": 4, "leaders": 1},
+		{"type": UType.HEAVY_INFANTRY, "count": 1, "leaders": 0},
+	]
+	p1.wings.append(w1)
+
+	p1.victory_conditions = ["10 VP", "Reduce enemy Rally Limit to zero"]
+	b.player1 = p1
+
+	var p2 = PlayerSetup.new()
+	p2.player_name = "Blue Army"
+	p2.edge = 2
+	p2.rally_limit = 4
+	p2.skirmish_factor = 0
+	p2.first_setup = false
+	p2.first_turn = false
+	p2.has_initiative = false
+
+	var w2 = WingSetup.new()
+	w2.wing_name = "Main Wing"
+	w2.color_name = "Blue"
+	w2.depth = Depth.SINGLE
+	w2.placement = HPlacement.CENTER
+	w2.edge_distance = 10
+	w2.units = [
+		{"type": UType.HOPLITE, "count": 4, "leaders": 1},
+		{"type": UType.LIGHT_INFANTRY, "count": 1, "leaders": 0},
+	]
+	p2.wings.append(w2)
+
+	p2.victory_conditions = ["10 VP", "Reduce enemy Rally Limit to zero"]
+	b.player2 = p2
+
+	b.special_rules = []
 	return b
